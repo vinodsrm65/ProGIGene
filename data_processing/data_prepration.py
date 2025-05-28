@@ -1,0 +1,240 @@
+
+import pandas as pd
+import boto3
+import numpy as np
+
+# Initialize S3 client
+s3 = boto3.client('s3')
+
+# S3 bucket and file information
+bucket = 'data-bucket'
+key = 'progigene/raw_data/clinical_data.csv'
+
+all_clinical_data = pd.read_csv(f's3://{bucket}/{key}', sep=',')
+
+all_clinical_data = all_clinical_data.rename(columns={
+    '_PATIENT': 'patient_id',
+    'cancer type abbreviation': 'cancer_type',
+    'age_at_initial_pathologic_diagnosis': 'age_at_diagnosis',
+
+    'ajcc_pathologic_tumor_stage': 'tumor_stage',
+    'OS': 'os',
+    'DSS': 'dss',
+    'DFI': 'dfi',
+    'PFI': 'pfi',
+    'OS.time': 'os_time',
+    'DSS.time': 'dss_time',
+    'DFI.time': 'dfi_time',
+    'PFI.time': 'pfi_time',
+})
+
+selected_columns = ['sample',
+                    'patient_id', 
+                    'cancer_type',
+                    'age_at_diagnosis', 
+                    'gender',
+                    'race',
+                    'tumor_stage',
+                    'vital_status',
+                    'tumor_status',
+                    'last_contact_days_to',
+                    'death_days_to',
+                    'new_tumor_event_type',
+                    'new_tumor_event_site',
+                    'new_tumor_event_site_other',
+                    'new_tumor_event_dx_days_to',
+                    'treatment_outcome_first_course',
+                    'os',
+                    'os_time',
+                    'dss',
+                    'dss_time',
+                    'dfi',
+                    'dfi_time',
+                    'pfi',
+                    'pfi_time'
+                    ]
+all_clinical_data = all_clinical_data[selected_columns]
+
+
+
+gi_cancer_types = ['COAD',
+                   'ESCA',
+                   'LIHC',
+                   'PAAD',
+                   'READ',
+                   'STAD']
+gi_clinical_data = all_clinical_data[all_clinical_data['cancer_type'].isin(gi_cancer_types)]
+early_stage_clinical_labeled_dataset = gi_clinical_data[
+    gi_clinical_data['tumor_stage'].str.contains("Stage I|Stage II|Stage III", case=False, na=False) &
+    gi_clinical_data['pfi_time'].notna()
+].copy()
+
+
+
+early_stage_clinical_labeled_dataset['early_progression_label'] = early_stage_clinical_labeled_dataset.apply(
+    lambda row: 1 if row['pfi'] == 1 and row['pfi_time'] <= 365 else 0,
+    axis=1
+)
+
+early_stage_clinical_labeled_dataset.to_csv(f's3://{bucket}/progigene/processed_progigene/early_stage_clinical_labeled_dataset.csv', index=False)
+
+
+### --- gene expression processing ---- ###
+key = 'progigene/raw_data/gene_expression_v2.csv'
+all_gene_expression_data = pd.read_csv(f's3://{bucket}/{key}', sep=',')
+
+all_gene_expression_data.rename(columns={all_gene_expression_data.columns[0]: "gene_id"}, inplace=True)
+all_gene_expression_data_T = all_gene_expression_data.set_index("gene_id").T
+all_gene_expression_data_T.reset_index(inplace=True)
+all_gene_expression_data_T.rename(columns={"index": "sample"}, inplace=True)
+all_gene_expression_data_T.iloc[:, 1:] = np.log2(all_gene_expression_data_T.iloc[:, 1:].astype(float) + 1)
+all_gene_expression_data_T.columns = ['sample'] + [f"rna_{col}" for col in all_gene_expression_data_T.columns[1:]]
+
+
+early_stage_gene_expression = all_gene_expression_data_T[all_gene_expression_data_T['sample'].isin(early_stage_clinical_labeled_dataset['sample'])]
+
+early_stage_gene_expression.to_csv(f's3://{bucket}/progigene/processed_progigene/early_stage_gene_expression_all.csv', index=False)
+
+early_stage_gene_expression = pd.read_csv(f's3://{bucket}/progigene/processed_progigene/early_stage_gene_expression_all.csv',sep=',')
+
+### --- Select Top 1000 Genes by Variance --- ###
+
+gene_columns = early_stage_gene_expression.columns.drop("sample")
+
+variances = early_stage_gene_expression[gene_columns].var().sort_values(ascending=False)
+
+top_genes = variances.head(1000).index
+
+df_top_genes = early_stage_gene_expression[["sample"] + list(top_genes)]
+
+df_top_genes.to_csv(f's3://{bucket}/progigene/processed_progigene/gene_expression_top1000.csv', index=False)
+
+### ---- Processing Mutation data --- ##
+
+all_mutation_data = pd.read_csv(f's3://{bucket}/progigene/raw_data/mutations.csv',sep=',')
+
+all_mutation_data = all_mutation_data[all_mutation_data['effect'] != "Silent"]
+
+df_binary = pd.crosstab(all_mutation_data['sample'], all_mutation_data['gene'])
+df_binary[df_binary > 0] = 1
+df_binary.columns = [f"mut_{gene}" for gene in df_binary.columns]
+df_binary.reset_index(inplace=True)
+gene_mutation = df_binary[df_binary['sample'].isin(early_stage_clinical_labeled_dataset['sample'])]
+
+min_samples = 5
+gene_counts = gene_mutation.drop(columns='sample').sum(axis=0)
+genes_to_keep = gene_counts[gene_counts >= min_samples].index
+df_filtered = gene_mutation[['sample'] + list(genes_to_keep)]
+df_filtered.to_csv(f's3://{bucket}/progigene/processed_progigene/gene_mutation.csv', index=False)
+
+### -- Processing CNV data --- ##
+
+all_cnv_data = pd.read_csv(f's3://{bucket}/progigene/raw_data/cnv.csv',sep=',')
+
+all_cnv_data.rename(columns={all_cnv_data.columns[0]: "gene"}, inplace=True)
+
+all_cnv_data_t = all_cnv_data.set_index("gene").T.reset_index()
+all_cnv_data_t.rename(columns={"index": "sample"}, inplace=True)
+all_cnv_data_t.columns = ["sample"] + [f"cnv_{col}" for col in all_cnv_data_t.columns[1:]]
+
+cnv_filtered = all_cnv_data_t[all_cnv_data_t['sample'].isin(early_stage_clinical_labeled_dataset['sample'])]
+
+cnv_array = cnv_filtered.iloc[:, 1:].values
+cnv_array = np.where(cnv_array <= -0.3, -1, 
+                     np.where(cnv_array >= 0.3, 1, 0))
+cnv_filtered.iloc[:, 1:] = cnv_array
+
+cnv_filtered.to_csv(f's3://{bucket}/progigene/processed_progigene/copy_number_variation.csv', index=False)
+
+### --- Methylation pre processing --- ###
+
+def process_methylation_data(
+    df_meth,
+    output_filename,
+    n_top_cpgs=1000,
+    prefix='meth_',
+    first_col_name='cpg_id'
+):
+    # Step 1: Rename first column
+    df_meth = df_meth.copy()  # Create copy to avoid modifying original
+    df_meth.rename(columns={df_meth.columns[0]: first_col_name}, inplace=True)
+    
+    # Step 2: Transpose so rows = samples, columns = CpGs
+    df_meth_t = df_meth.set_index(first_col_name).T
+    df_meth_t.index.name = 'sample'
+    df_meth_t.reset_index(inplace=True)
+    
+    # Step 3: Calculate variance of each CpG across samples
+    cpg_variance = df_meth_t.drop(columns='sample').var().sort_values(ascending=False)
+    
+    # Step 4: Select top n variable CpGs
+    top_cpgs = cpg_variance.head(n_top_cpgs).index.tolist()
+    
+    # Step 5: Keep only sample column + top CpGs
+    df_meth_filtered = df_meth_t[['sample'] + top_cpgs]
+    
+    # Step 6: Prefix CpG columns
+    df_meth_filtered.columns = ['sample'] + [f"{prefix}{col}" for col in df_meth_filtered.columns[1:]]
+    
+    # Step 7: Save to file
+    df_meth_filtered.to_csv(f's3://{bucket}/progigene/processed_progigene/{output_filename}', index=False)
+    
+    return df_meth_filtered
+
+esca_methylation = pd.read_csv(f's3://{bucket}/progigene/raw_data/ESCA_methylation450.tsv',sep='\t')
+processed_df = process_methylation_data(
+    df_meth=esca_methylation,
+    output_filename="esca_methylation_top1000_cpgs.csv",
+    n_top_cpgs=1000,  
+    prefix='meth_',    
+    first_col_name='cpg_id'  
+)
+
+
+coad_methylation = pd.read_csv(f's3://{bucket}/progigene/raw_data/COAD_methylation450.tsv',sep='\t')
+processed_df = process_methylation_data(
+    df_meth=coad_methylation,
+    output_filename="coad_methylation_top1000_cpgs.csv",
+    n_top_cpgs=1000,  
+    prefix='meth_',    
+    first_col_name='cpg_id'  
+)
+
+lihc_methylation = pd.read_csv(f's3://{bucket}/progigene/raw_data/LIHC_methylation450.tsv',sep='\t')
+processed_df = process_methylation_data(
+    df_meth=lihc_methylation,
+    output_filename="lihc_methylation_top1000_cpgs.csv",
+    n_top_cpgs=1000, 
+    prefix='meth_',    
+    first_col_name='cpg_id'  
+)
+
+paad_methylation = pd.read_csv(f's3://{bucket}/progigene/raw_data/PAAD_methylation450.tsv',sep='\t')
+processed_df = process_methylation_data(
+    df_meth=paad_methylation,
+    output_filename="paad_methylation_top1000_cpgs.csv",
+    n_top_cpgs=1000,  
+    prefix='meth_',    
+    first_col_name='cpg_id' 
+)
+
+read_methylation = pd.read_csv(f's3://{bucket}/progigene/raw_data/READ_methylation450.tsv',sep='\t')
+processed_df = process_methylation_data(
+    df_meth=read_methylation,
+    output_filename="read_methylation_top1000_cpgs.csv",
+    n_top_cpgs=1000,  
+    prefix='meth_',    
+    first_col_name='cpg_id' 
+)
+
+stad_methylation = pd.read_csv(f's3://{bucket}/progigene/raw_data/STAD_methylation450.tsv',sep='\t')
+processed_df = process_methylation_data(
+    df_meth=stad_methylation,
+    output_filename="stad_methylation_top1000_cpgs.csv",
+    n_top_cpgs=1000,  
+    prefix='meth_',   
+    first_col_name='cpg_id'  
+)
+
+
+
