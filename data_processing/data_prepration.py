@@ -191,13 +191,13 @@ df_mut = pd.read_csv(f's3://{bucket}/progigene/processed_progigene/gene_mutation
 df_cnv = pd.read_csv(f's3://{bucket}/progigene/processed_progigene/copy_number_variation.csv')
 df_meth = pd.read_csv(f's3://{bucket}/progigene/processed_progigene/methylation_top1000_cpgs.csv')
 
-# Ensure all have a 'sample' column
-for df in [df_clinical, df_rna, df_mut, df_cnv, df_meth]:
-    df.rename(columns={df.columns[0]: "sample"}, inplace=True)
+training_dataset = df_clinical.merge(df_rna, on='sample', how='inner') \
+                .merge(df_mut, on='sample', how='left') \
+                .merge(df_cnv, on='sample', how='left') \
+                .merge(df_meth, on='sample', how='left')
 
-# Merge all datasets on 'sample' using inner join
-training_dataset = reduce(lambda left, right: pd.merge(left, right, on='sample', how='inner'),
-                   [df_clinical, df_rna, df_mut, df_cnv, df_meth])
+training_dataset.fillna(0, inplace=True)
+
 training_dataset.to_csv(f's3://{bucket}/progigene/processed_progigene/final_training_dataset.csv', index=False)
 
 
