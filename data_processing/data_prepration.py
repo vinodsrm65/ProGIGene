@@ -179,4 +179,27 @@ df_meth_filtered.columns = ['sample'] + [f"meth_{col}" for col in df_meth_filter
 df_meth_filtered.to_csv(f's3://{bucket}/progigene/processed_progigene/methylation_top1000_cpgs.csv', index=False)
 
 
+import pandas as pd
+from functools import reduce
+
+bucket = 'shelfspace-alpha-sandbox'
+
+# Load all processed data files
+df_clinical = pd.read_csv(f's3://{bucket}/progigene/processed_progigene/early_stage_clinical_labeled_dataset.csv')
+df_rna = pd.read_csv(f's3://{bucket}/progigene/processed_progigene/gene_expression_top1000.csv')
+df_mut = pd.read_csv(f's3://{bucket}/progigene/processed_progigene/gene_mutation.csv')
+df_cnv = pd.read_csv(f's3://{bucket}/progigene/processed_progigene/copy_number_variation.csv')
+df_meth = pd.read_csv(f's3://{bucket}/progigene/processed_progigene/methylation_top1000_cpgs.csv')
+
+# Ensure all have a 'sample' column
+for df in [df_clinical, df_rna, df_mut, df_cnv, df_meth]:
+    df.rename(columns={df.columns[0]: "sample"}, inplace=True)
+
+# Merge all datasets on 'sample' using inner join
+training_dataset = reduce(lambda left, right: pd.merge(left, right, on='sample', how='inner'),
+                   [df_clinical, df_rna, df_mut, df_cnv, df_meth])
+training_dataset.to_csv(f's3://{bucket}/progigene/processed_progigene/final_training_dataset.csv', index=False)
+
+
+
 
