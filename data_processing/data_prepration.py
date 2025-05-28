@@ -148,93 +148,35 @@ cnv_filtered.to_csv(f's3://{bucket}/progigene/processed_progigene/copy_number_va
 
 ### --- Methylation pre processing --- ###
 
-def process_methylation_data(
-    df_meth,
-    output_filename,
-    n_top_cpgs=1000,
-    prefix='meth_',
-    first_col_name='cpg_id'
-):
-    # Step 1: Rename first column
-    df_meth = df_meth.copy()  # Create copy to avoid modifying original
-    df_meth.rename(columns={df_meth.columns[0]: first_col_name}, inplace=True)
-    
-    # Step 2: Transpose so rows = samples, columns = CpGs
-    df_meth_t = df_meth.set_index(first_col_name).T
-    df_meth_t.index.name = 'sample'
-    df_meth_t.reset_index(inplace=True)
-    
-    # Step 3: Calculate variance of each CpG across samples
-    cpg_variance = df_meth_t.drop(columns='sample').var().sort_values(ascending=False)
-    
-    # Step 4: Select top n variable CpGs
-    top_cpgs = cpg_variance.head(n_top_cpgs).index.tolist()
-    
-    # Step 5: Keep only sample column + top CpGs
-    df_meth_filtered = df_meth_t[['sample'] + top_cpgs]
-    
-    # Step 6: Prefix CpG columns
-    df_meth_filtered.columns = ['sample'] + [f"{prefix}{col}" for col in df_meth_filtered.columns[1:]]
-    
-    # Step 7: Save to file
-    df_meth_filtered.to_csv(f's3://{bucket}/progigene/processed_progigene/{output_filename}', index=False)
-    
-    return df_meth_filtered
+def transpose_meth_data(df, first_col_name='cpg_id'):
+    df = df.copy()
+    df.rename(columns={df.columns[0]: first_col_name}, inplace=True)
+    df_t = df.set_index(first_col_name).T
+    df_t.index.name = 'sample'
+    df_t.reset_index(inplace=True)
+    return df_t
 
-esca_methylation = pd.read_csv(f's3://{bucket}/progigene/raw_data/ESCA_methylation450.tsv',sep='\t')
-processed_df = process_methylation_data(
-    df_meth=esca_methylation,
-    output_filename="esca_methylation_top1000_cpgs.csv",
-    n_top_cpgs=1000,  
-    prefix='meth_',    
-    first_col_name='cpg_id'  
-)
+# 2. Load and transpose all
+df_esca = transpose_meth_data(pd.read_csv(f's3://{bucket}/raw_data/ESCA_methylation450.tsv',sep='\t'))
+df_coad = transpose_meth_data(pd.read_csv(f's3://{bucket}/raw_data/COAD_methylation450.tsv',sep='\t'))
+df_lihc = transpose_meth_data(pd.read_csv(f's3://{bucket}/raw_data/LIHC_methylation450.tsv',sep='\t'))
+df_paad = transpose_meth_data(pd.read_csv(f's3://{bucket}/raw_data/PAAD_methylation450.tsv',sep='\t'))
+df_read = transpose_meth_data(pd.read_csv(f's3://{bucket}/raw_data/READ_methylation450.tsv',sep='\t'))
+df_stad = transpose_meth_data(pd.read_csv(f's3://{bucket}/raw_data/STAD_methylation450.tsv',sep='\t'))
 
+# 3. Concatenate all transposed datasets
+df_all_meth = pd.concat([df_esca, df_coad, df_lihc, df_paad, df_read, df_stad], ignore_index=True)
 
-coad_methylation = pd.read_csv(f's3://{bucket}/progigene/raw_data/COAD_methylation450.tsv',sep='\t')
-processed_df = process_methylation_data(
-    df_meth=coad_methylation,
-    output_filename="coad_methylation_top1000_cpgs.csv",
-    n_top_cpgs=1000,  
-    prefix='meth_',    
-    first_col_name='cpg_id'  
-)
+# 4. Calculate CpG variances across combined samples
+cpg_variance = df_all_meth.drop(columns='sample').var().sort_values(ascending=False)
+top_cpgs = cpg_variance.head(1000).index.tolist()
 
-lihc_methylation = pd.read_csv(f's3://{bucket}/progigene/raw_data/LIHC_methylation450.tsv',sep='\t')
-processed_df = process_methylation_data(
-    df_meth=lihc_methylation,
-    output_filename="lihc_methylation_top1000_cpgs.csv",
-    n_top_cpgs=1000, 
-    prefix='meth_',    
-    first_col_name='cpg_id'  
-)
+# 5. Filter and prefix
+df_meth_filtered = df_all_meth[['sample'] + top_cpgs]
+df_meth_filtered.columns = ['sample'] + [f"meth_{col}" for col in df_meth_filtered.columns[1:]]
 
-paad_methylation = pd.read_csv(f's3://{bucket}/progigene/raw_data/PAAD_methylation450.tsv',sep='\t')
-processed_df = process_methylation_data(
-    df_meth=paad_methylation,
-    output_filename="paad_methylation_top1000_cpgs.csv",
-    n_top_cpgs=1000,  
-    prefix='meth_',    
-    first_col_name='cpg_id' 
-)
-
-read_methylation = pd.read_csv(f's3://{bucket}/progigene/raw_data/READ_methylation450.tsv',sep='\t')
-processed_df = process_methylation_data(
-    df_meth=read_methylation,
-    output_filename="read_methylation_top1000_cpgs.csv",
-    n_top_cpgs=1000,  
-    prefix='meth_',    
-    first_col_name='cpg_id' 
-)
-
-stad_methylation = pd.read_csv(f's3://{bucket}/progigene/raw_data/STAD_methylation450.tsv',sep='\t')
-processed_df = process_methylation_data(
-    df_meth=stad_methylation,
-    output_filename="stad_methylation_top1000_cpgs.csv",
-    n_top_cpgs=1000,  
-    prefix='meth_',   
-    first_col_name='cpg_id'  
-)
+# 6. Save result
+df_meth_filtered.to_csv(f's3://{bucket}/progigene/processed_progigene/methylation_top1000_cpgs.csv', index=False)
 
 
 
