@@ -189,4 +189,16 @@ print("\n🔎 ElasticNet:")
 print("AUC:", roc_auc_score(y_test, y_prob_elastic))
 print(classification_report(y_test, (y_prob_elastic >= threshold_elastic).astype(int)))
 
+## - Biology Interp -- ##
+import pandas as pd
+import shap
+import numpy as np
 
+# Assuming you have:
+# - final_model (LightGBM or XGBoost)
+# - X_train or full X
+explainer = shap.Explainer(model, X_train)  # or full X
+shap_values = explainer(X_train)
+
+mean_shap = np.abs(shap_values.values).mean(axis=0)
+top_features = pd.Series(mean_shap, index=X_train.columns).sort_values(ascending=False).head(30)
