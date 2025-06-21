@@ -127,8 +127,6 @@ print(f"✅ Merged data: {merged.shape[0]} samples")
 threshold = np.percentile(merged['risk_score'], 80)
 merged['risk_group'] = np.where(merged['risk_score'] >= threshold, 'High Risk', 'Low Risk')
 
-# You can try 66th percentile instead if you want:
-# threshold = np.percentile(merged['risk_score'], 66)
 
 # ----------------------------
 # Step 10: Plot Kaplan–Meier Curve
