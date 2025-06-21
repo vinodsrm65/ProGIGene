@@ -122,7 +122,7 @@ merged = merged.dropna(subset=['risk_score', 'DFS_time', 'DFS_event'])
 print(f"✅ Merged data: {merged.shape[0]} samples")
 
 # ----------------------------
-# Step 9: Stratify by 66th percentile risk score (adjust if needed)
+# Step 9: Stratify by 80th percentile risk score (adjust if needed)
 # ----------------------------
 threshold = np.percentile(merged['risk_score'], 80)
 merged['risk_group'] = np.where(merged['risk_score'] >= threshold, 'High Risk', 'Low Risk')
