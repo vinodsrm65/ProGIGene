@@ -19,7 +19,7 @@ This analysis validates a trained RNA-based prognostic model (**ProGIGene**) usi
 
 ### Kaplan–Meier Curve
 
-![KM Plot](ProGIGene_GSE62452_KM.png)
+![KM Plot](model/validation/ProGIGene_GSE62452_KM.png)
 
 ---
 
@@ -37,8 +37,8 @@ This analysis validates a trained RNA-based prognostic model (**ProGIGene**) usi
 
 ### 📂 Files
 
-- `ProGIGene_GSE62452_KM.png`: Kaplan–Meier survival curve comparing high vs. low risk groups
-- `pancreatic_paad.py`: Script used to perform preprocessing, prediction, and survival analysis
+- `model/validation/ProGIGene_GSE62452_KM.png`: Kaplan–Meier survival curve comparing high vs. low risk groups
+- `model/validation/pancreatic_paad.py`: Script used to perform preprocessing, prediction, and survival analysis
 
 ---
 
