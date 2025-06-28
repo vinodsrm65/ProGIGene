@@ -50,4 +50,4 @@ df['pfi'] = df['pfi'].astype(int)
 df['early_progression_label'] = df.apply(lambda row: 1 if row['pfi'] == 1 and row['pfi_time'] <= 365 else 0, axis=1)
 
 # Save
-df.to_csv(f's3://{bucket}/users/tyshaikh/progigene/processed_progigene/elastic/early_stage_clinical_labeled_dataset.csv', index=False)
+df.to_csv('early_stage_clinical_labeled_dataset.csv', index=False)
